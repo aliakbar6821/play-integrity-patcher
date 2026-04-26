@@ -43,11 +43,11 @@ jobs:
           mkdir -p tools
 
           echo "Downloading baksmali..."
-          curl -fL https://github.com/google/smali/releases/download/3.0.8/baksmali-3.0.8.jar \
+          curl -fL https://github.com/baksmali/smali/releases/download/3.0.9/baksmali-3.0.9-fat.jar \
             -o tools/baksmali.jar
 
           echo "Downloading smali..."
-          curl -fL https://github.com/google/smali/releases/download/3.0.8/smali-3.0.8.jar \
+          curl -fL https://github.com/baksmali/smali/releases/download/3.0.9/smali-3.0.9-fat.jar \
             -o tools/smali.jar
 
           echo "Downloading apktool..."
@@ -212,3 +212,4 @@ jobs:
             output/Settings_signed.apk
             output/PlayIntegrityPatcher.zip
           retention-days: 7
+          
