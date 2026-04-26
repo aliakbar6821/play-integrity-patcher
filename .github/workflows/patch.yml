@@ -41,13 +41,38 @@ jobs:
       - name: Download tools
         run: |
           mkdir -p tools
-          wget -q https://github.com/JesusFreke/smali/releases/download/v2.5.2/baksmali-2.5.2.jar \
+
+          # baksmali
+          wget -q \
+            "https://bitbucket.org/JesusFreke/smali/downloads/baksmali-2.5.2.jar" \
+            -O tools/baksmali.jar || \
+          wget -q \
+            "https://github.com/google/smali/releases/download/v3.0.9/baksmali-3.0.9-fat.jar" \
             -O tools/baksmali.jar
-          wget -q https://github.com/JesusFreke/smali/releases/download/v2.5.2/smali-2.5.2.jar \
+
+          # smali
+          wget -q \
+            "https://bitbucket.org/JesusFreke/smali/downloads/smali-2.5.2.jar" \
+            -O tools/smali.jar || \
+          wget -q \
+            "https://github.com/google/smali/releases/download/v3.0.9/smali-3.0.9-fat.jar" \
             -O tools/smali.jar
-          wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar \
+
+          # apktool
+          wget -q \
+            "https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar" \
             -O tools/apktool.jar
-          echo "Tools downloaded"
+
+          # verify downloads
+          ls -lh tools/
+          for f in tools/baksmali.jar tools/smali.jar tools/apktool.jar; do
+            if [ ! -s "$f" ]; then
+              echo "ERROR: $f is empty or missing"
+              exit 1
+            fi
+          done
+
+          echo "Tools downloaded successfully"
 
       - name: Download input files
         run: |
