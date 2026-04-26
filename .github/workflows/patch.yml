@@ -34,42 +34,46 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y zipalign apksigner aapt python3-pip
+          sudo apt-get update -qq
+          sudo apt-get install -y zipalign apksigner aapt python3-pip curl
           pip3 install lxml
 
-- name: Download tools
-  run: |
-    mkdir -p tools
+      - name: Download tools
+        run: |
+          mkdir -p tools
 
-    # ❌ Dead - JesusFreke/smali is archived
-    # wget -q https://github.com/JesusFreke/smali/releases/download/v2.5.2/baksmali-2.5.2.jar
+          echo "Downloading baksmali..."
+          curl -fL https://github.com/google/smali/releases/download/3.0.8/baksmali-3.0.8.jar \
+            -o tools/baksmali.jar
 
-    # ✅ Use google/smali (active fork)
-    curl -fL https://github.com/google/smali/releases/download/3.0.8/baksmali-3.0.8.jar \
-      -o tools/baksmali.jar
-    curl -fL https://github.com/google/smali/releases/download/3.0.8/smali-3.0.8.jar \
-      -o tools/smali.jar
+          echo "Downloading smali..."
+          curl -fL https://github.com/google/smali/releases/download/3.0.8/smali-3.0.8.jar \
+            -o tools/smali.jar
 
-    # apktool is fine, just switch wget → curl
-    curl -fL https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar \
-      -o tools/apktool.jar
+          echo "Downloading apktool..."
+          curl -fL https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar \
+            -o tools/apktool.jar
 
-    echo "Tools downloaded"
-    ls -lh tools/
+          echo "Tools downloaded:"
+          ls -lh tools/
+
       - name: Download input files
         run: |
           mkdir -p input
+
           echo "Downloading target framework.jar..."
-          wget -q "${{ github.event.inputs.framework_jar_url }}" \
-            -O input/framework.jar
+          curl -fL "${{ github.event.inputs.framework_jar_url }}" \
+            -o input/framework.jar
+
           echo "Downloading target Settings.apk..."
-          wget -q "${{ github.event.inputs.settings_apk_url }}" \
-            -O input/Settings.apk
+          curl -fL "${{ github.event.inputs.settings_apk_url }}" \
+            -o input/Settings.apk
+
           echo "Downloading Clover framework.jar..."
-          wget -q "${{ github.event.inputs.clover_framework_url }}" \
-            -O input/clover_framework.jar
-          echo "All files downloaded"
+          curl -fL "${{ github.event.inputs.clover_framework_url }}" \
+            -o input/clover_framework.jar
+
+          echo "All files downloaded:"
           ls -lh input/
 
       - name: Setup android.jar from Clover framework
@@ -86,7 +90,7 @@ jobs:
           ./gradlew assembleRelease \
             -Pandroid.home=$GITHUB_WORKSPACE/android-sdk \
             --no-daemon
-          echo "Helper APK built"
+          echo "Helper APK built:"
           ls -lh app/build/outputs/apk/release/
 
       - name: Extract smali from helper APK
@@ -112,7 +116,7 @@ jobs:
             input/Settings.apk \
             -o extracted/settings_out/ \
             --force
-          echo "Target Settings.apk decompiled"
+          echo "Target Settings.apk decompiled:"
           ls extracted/settings_out/
 
       - name: Patch framework smali
@@ -138,7 +142,7 @@ jobs:
           cp input/framework.jar output/framework.jar
           cd output
           zip framework.jar classes.dex
-          echo "framework.jar repacked"
+          echo "framework.jar repacked:"
           ls -lh
 
       - name: Recompile Settings.apk
@@ -172,11 +176,13 @@ jobs:
         run: |
           mkdir -p magisk_module/system/framework
           mkdir -p magisk_module/system/priv-app/Settings
+
           cp output/framework.jar \
             magisk_module/system/framework/framework.jar
           cp output/Settings_signed.apk \
             magisk_module/system/priv-app/Settings/Settings.apk
-          cat > magisk_module/module.prop << PROP
+
+          cat > magisk_module/module.prop << 'PROP'
           id=play_integrity_patcher
           name=Play Integrity Patcher
           version=v1.0
@@ -184,12 +190,15 @@ jobs:
           author=Extracted from Project Clover
           description=Adds PIF JSON and Keybox XML spoofing to More Security settings
           PROP
+
           cat > magisk_module/post-fs-data.sh << 'SCRIPT'
           #!/system/bin/sh
           am force-stop com.google.android.gms 2>/dev/null
           am force-stop com.android.vending 2>/dev/null
           SCRIPT
+
           chmod +x magisk_module/post-fs-data.sh
+
           cd magisk_module
           zip -r ../output/PlayIntegrityPatcher.zip .
           echo "Magisk module created"
