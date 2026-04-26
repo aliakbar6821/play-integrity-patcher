@@ -1,0 +1,39 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.android.settings'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.android.settings"
+        minSdk 36
+        targetSdk 36
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        exclude 'android/**'
+        exclude 'com/android/internal/**'
+        exclude 'java/**'
+        exclude 'javax/**'
+    }
+}
+
+dependencies {
+    compileOnly fileTree(dir: '../../../android-sdk/platforms/android-36', include: ['*.jar'])
+}

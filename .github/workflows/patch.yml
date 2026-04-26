@@ -1,0 +1,197 @@
+name: Patch Play Integrity Features
+
+on:
+  workflow_dispatch:
+    inputs:
+      framework_jar_url:
+        description: 'Direct URL to target ROM framework.jar'
+        required: true
+      settings_apk_url:
+        description: 'Direct URL to target ROM Settings.apk'
+        required: true
+      clover_framework_url:
+        description: 'Direct URL to Clover ROM framework.jar'
+        required: true
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zipalign apksigner aapt python3-pip
+          pip3 install lxml
+
+      - name: Download tools
+        run: |
+          mkdir -p tools
+          wget -q https://github.com/JesusFreke/smali/releases/download/v2.5.2/baksmali-2.5.2.jar \
+            -O tools/baksmali.jar
+          wget -q https://github.com/JesusFreke/smali/releases/download/v2.5.2/smali-2.5.2.jar \
+            -O tools/smali.jar
+          wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar \
+            -O tools/apktool.jar
+          echo "Tools downloaded"
+
+      - name: Download input files
+        run: |
+          mkdir -p input
+          echo "Downloading target framework.jar..."
+          wget -q "${{ github.event.inputs.framework_jar_url }}" \
+            -O input/framework.jar
+          echo "Downloading target Settings.apk..."
+          wget -q "${{ github.event.inputs.settings_apk_url }}" \
+            -O input/Settings.apk
+          echo "Downloading Clover framework.jar..."
+          wget -q "${{ github.event.inputs.clover_framework_url }}" \
+            -O input/clover_framework.jar
+          echo "All files downloaded"
+          ls -lh input/
+
+      - name: Setup android.jar from Clover framework
+        run: |
+          mkdir -p android-sdk/platforms/android-36
+          cp input/clover_framework.jar \
+            android-sdk/platforms/android-36/android.jar
+          echo "android.jar ready"
+
+      - name: Build helper APK
+        run: |
+          cd helper-app
+          chmod +x gradlew
+          ./gradlew assembleRelease \
+            -Pandroid.home=$GITHUB_WORKSPACE/android-sdk \
+            --no-daemon
+          echo "Helper APK built"
+          ls -lh app/build/outputs/apk/release/
+
+      - name: Extract smali from helper APK
+        run: |
+          mkdir -p extracted/helper_smali
+          java -jar tools/baksmali.jar d \
+            helper-app/app/build/outputs/apk/release/app-release-unsigned.apk \
+            -o extracted/helper_smali/
+          echo "Helper APK decompiled"
+          find extracted/helper_smali -name "*.smali" | head -20
+
+      - name: Decompile target framework.jar
+        run: |
+          mkdir -p extracted/framework_smali
+          java -jar tools/baksmali.jar d \
+            input/framework.jar \
+            -o extracted/framework_smali/
+          echo "Target framework.jar decompiled"
+
+      - name: Decompile target Settings.apk
+        run: |
+          java -jar tools/apktool.jar d \
+            input/Settings.apk \
+            -o extracted/settings_out/ \
+            --force
+          echo "Target Settings.apk decompiled"
+          ls extracted/settings_out/
+
+      - name: Patch framework smali
+        run: |
+          chmod +x scripts/patch_framework.sh
+          bash scripts/patch_framework.sh \
+            extracted/framework_smali \
+            extracted/helper_smali
+
+      - name: Patch Settings smali and resources
+        run: |
+          chmod +x scripts/patch_settings.sh
+          bash scripts/patch_settings.sh \
+            extracted/settings_out \
+            extracted/helper_smali
+
+      - name: Recompile framework.jar
+        run: |
+          mkdir -p output
+          java -jar tools/smali.jar a \
+            extracted/framework_smali/ \
+            -o output/classes.dex
+          cp input/framework.jar output/framework.jar
+          cd output
+          zip framework.jar classes.dex
+          echo "framework.jar repacked"
+          ls -lh
+
+      - name: Recompile Settings.apk
+        run: |
+          java -jar tools/apktool.jar b \
+            extracted/settings_out/ \
+            -o output/Settings_unsigned.apk
+          echo "Settings.apk recompiled"
+
+      - name: Sign Settings.apk
+        run: |
+          keytool -genkey -v \
+            -keystore output/testkey.jks \
+            -alias testkey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass testpass \
+            -keypass testpass \
+            -dname "CN=Android,OU=Android,O=Android,L=MV,ST=CA,C=US"
+          apksigner sign \
+            --ks output/testkey.jks \
+            --ks-pass pass:testpass \
+            --key-pass pass:testpass \
+            --out output/Settings_signed.apk \
+            output/Settings_unsigned.apk
+          apksigner verify output/Settings_signed.apk
+          echo "Signed successfully"
+
+      - name: Create Magisk module
+        run: |
+          mkdir -p magisk_module/system/framework
+          mkdir -p magisk_module/system/priv-app/Settings
+          cp output/framework.jar \
+            magisk_module/system/framework/framework.jar
+          cp output/Settings_signed.apk \
+            magisk_module/system/priv-app/Settings/Settings.apk
+          cat > magisk_module/module.prop << PROP
+          id=play_integrity_patcher
+          name=Play Integrity Patcher
+          version=v1.0
+          versionCode=1
+          author=Extracted from Project Clover
+          description=Adds PIF JSON and Keybox XML spoofing to More Security settings
+          PROP
+          cat > magisk_module/post-fs-data.sh << 'SCRIPT'
+          #!/system/bin/sh
+          am force-stop com.google.android.gms 2>/dev/null
+          am force-stop com.android.vending 2>/dev/null
+          SCRIPT
+          chmod +x magisk_module/post-fs-data.sh
+          cd magisk_module
+          zip -r ../output/PlayIntegrityPatcher.zip .
+          echo "Magisk module created"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: patched-files
+          path: |
+            output/framework.jar
+            output/Settings_signed.apk
+            output/PlayIntegrityPatcher.zip
+          retention-days: 7
